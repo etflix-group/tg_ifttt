@@ -2,84 +2,235 @@
 
 Self-hosted Telegram workflow automation for ordinary user accounts and Bot API integrations.
 
-The approved architecture is documented in [the design specification](docs/superpowers/specs/2026-09-10-telegram-ifttt-design.md). The implementation is split into a Python runtime, account-scoped Telegram adapters, and deployment shells. Ordinary accounts use Telethon MTProto and support encrypted QR/phone-code/2FA login sessions; Bot Tokens use the Bot API for sending, update polling, and callback answers.
+把 Telegram 动作连成一条可靠的线：发送消息、等待回复、点击按钮、条件分支——全部通过可视化画布编排，运行时自动等待 bot 响应并写入 SQLite 检查点，服务重启后从断点继续。
 
-## Docker deployment
+---
+
+## 快速开始
+
+### 1. 准备配置文件
 
 ```bash
 cp .env.example .env
-# replace TG_IFTTT_ADMIN_TOKEN with a long random value, then edit the selected Telegram adapter settings
-# Prefer `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`; if a value contains $, wrap the whole value in single quotes in .env.
-docker compose up -d --build
 ```
 
-The React console is exposed on `http://localhost:8080` by default; the API is on `http://localhost:8000`. SQLite, account sessions, workflow versions, and checkpoints are stored in the `tg_ifttt_data` volume. Put the public ports behind HTTPS when exposing them to the internet. After changing `.env`, use `docker compose up -d --build --force-recreate` so the new environment reaches the API container.
-
-### Visual workflow editor
-
-The React console is the primary workflow editor. It follows the Node-RED interaction model without leaving the application:
-
-- drag a built-in node from the left palette onto the canvas, or click it to add one at the center;
-- drag a node by its body to reposition it, then drag its right handle to another node to create a connection;
-- click a node to edit its action, or click a connection to edit its branch condition;
-- press `Delete` / `Backspace` to remove the selected node or connection; removing a node also removes its attached connections;
-- use the mouse wheel or the `-` / `+` controls to zoom, drag the empty canvas to pan, and use fit/reset/minimap controls for navigation.
-
-Node positions and the last canvas viewport are stored in the workflow's `ui` layout and survive API saves, reloads, and version restoration. The editor only exposes the project's built-in Telegram actions and safe expressions.
-
-Docker also starts an optional password-protected Node-RED compatibility editor at `http://localhost:8080/nodered/` (direct port `1880` by default). The default Node-RED username is `admin`; its password falls back to `TG_IFTTT_ADMIN_TOKEN`. Set `TG_IFTTT_NODERED_PASSWORD` in `.env` if a separate password is preferred. Its flow file is persisted in the `tg_ifttt_nodered_data` volume.
-
-Node-RED remains an authoring/compatibility surface only. The Python engine remains the only executor, so the supplied `tg-*` nodes report an editor-only error if deployed inside Node-RED. The API compiler accepts only the supplied safe node types and rejects arbitrary nodes such as `function`, `exec`, `inject`, or third-party nodes. This keeps ordinary-account sessions, Bot Tokens, SQLite checkpoints, and Qinglong behavior in one runtime.
-
-To edit a workflow in the compatibility editor, open “配置文件” in the React console and choose “Node-RED 兼容”, or export a Flow from the authenticated API, import the returned `flow` array in Node-RED, then export the edited Flow and send it back through the API:
+编辑 `.env`，**必须填写以下四项**：
 
 ```bash
-curl -s -H "Authorization: Bearer $TG_IFTTT_ADMIN_TOKEN" \
-  http://localhost:8000/api/workflows/daily/nodered | jq '.flow' > daily.flow.json
+# ┌─────────────────────────────────────────────────────┐
+# │                    必填项                             │
+# └─────────────────────────────────────────────────────┘
 
-# Import daily.flow.json in Node-RED, edit and export it again, then:
-curl -s -X PUT -H "Authorization: Bearer $TG_IFTTT_ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' --data-binary @daily.flow.json \
-  http://localhost:8000/api/workflows/daily/nodered
+# 适配器类型：普通用户账号用 mtproto，Bot 用 bot_api
+TG_IFTTT_ADAPTER=mtproto
+
+# Telegram API ID，从 https://my.telegram.org 获取
+TG_IFTTT_API_ID=
+
+# Telegram API Hash，从 https://my.telegram.org 获取
+TG_IFTTT_API_HASH=
+
+# 管理令牌，用于访问 Web 控制台和 API
+# 生成方式：python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# 如果值包含 $，在 .env 中用单引号包裹整个值
+TG_IFTTT_ADMIN_TOKEN=
 ```
 
-The native React canvas remains the source of truth for normal editing. Node-RED Flow JSON is only a portable compatibility format; the Python API remains the source of truth for executable workflow versions.
+> **如何获取 API ID / API Hash？**
+> 1. 访问 https://my.telegram.org 并登录你的 Telegram 账号
+> 2. 点击「API development tools」
+> 3. 填写应用名称（随意），提交后即可看到 `App api_id` 和 `App api_hash`
 
-The API service can also run alone:
+### 2. 启动服务
+
+```bash
+docker compose up -d
+```
+
+首次启动会自动拉取镜像。启动后：
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| Web 控制台 | `http://localhost:8080` | 可视化流程编辑器 |
+| REST API | `http://localhost:8000` | 管理接口 |
+| 健康检查 | `http://localhost:8000/api/health` | 无需认证 |
+
+### 3. 登录 Telegram 账号
+
+1. 打开 `http://localhost:8080`
+2. 输入 `.env` 中的 `TG_IFTTT_ADMIN_TOKEN` 进入控制台
+3. 在左侧导航点击「Telegram 账号」
+4. 点击「添加账号」，选择登录方式：
+   - **QR 扫码**：用 Telegram 手机端扫描二维码
+   - **手机号验证码**：输入手机号 → 收到验证码 → 填入（如开启了两步验证，还需输入密码）
+
+登录成功后，账号状态显示为 `ready`，即可在流程中选用。
+
+---
+
+## Web 控制台操作指南
+
+### 流程编辑器
+
+左侧导航「流程编辑器」是核心操作界面，交互方式类似 n8n / Node-RED：
+
+- **添加节点**：从左侧节点库拖拽到画布，或点击节点库项在画布中心添加
+- **连接节点**：拖拽节点右侧的手柄到下一个节点
+- **编辑节点**：点击节点，在右侧检查器中配置参数
+- **编辑连线**：点击连线，可设置分支条件
+- **删除**：选中节点或连线后按 `Delete` / `Backspace`
+- **缩放**：鼠标滚轮或 `-` / `+` 按钮；拖拽空白处平移画布
+- **撤销/重做**：`⌘Z` / `⌘⇧Z`
+- **保存**：`⌘S` 或点击右上角「保存版本」
+- **运行**：`⌘↵` 或点击「手动运行」
+
+### 可用节点类型
+
+| 节点 | 说明 |
+|------|------|
+| 发送消息 | 向目标会话发送文本（如 `/start`） |
+| 等待消息 | 按发送者和文本内容筛选等待新消息 |
+| 点击按钮 | 自动匹配 Inline Keyboard 按钮并点击 |
+| 回答回调 | Bot API callback query 应答 |
+| 读取消息 | 获取目标会话最近消息快照 |
+| 设置变量 | 写入安全表达式变量 |
+| 条件分支 | 安全表达式判断，控制流程走向 |
+| 延迟 | 等待指定秒数 |
+| 结束 | 结束当前流程 |
+
+### 流程配置
+
+在画布顶部的元信息栏可以设置：
+
+- **流程名称** / **流程 ID**：用于标识和管理
+- **默认目标会话**：如 `@bot` 或数字 peer ID，节点可单独覆盖
+- **执行账号**：从已登录的 Telegram 账号中选择
+- **触发器**：手动触发、定时调度（每 N 天的固定时刻）、事件触发
+
+### 运行记录
+
+左侧导航「运行记录」显示每次流程执行的状态、检查点位置和错误信息。每个节点完成后写入 SQLite 检查点，服务重启后可从当前位置继续。
+
+### 配置文件导入/导出
+
+点击「配置文件」按钮可以 YAML / JSON 格式查看、编辑和导入导出流程。凭据、session 和 Bot Token 永远不会进入流程配置文件。
+
+---
+
+## .env 配置项说明
+
+### 必填项
+
+| 变量 | 说明 |
+|------|------|
+| `TG_IFTTT_ADAPTER` | 适配器类型：`mtproto`（普通用户账号）或 `bot_api`（Bot） |
+| `TG_IFTTT_API_ID` | Telegram API ID，从 https://my.telegram.org 获取 |
+| `TG_IFTTT_API_HASH` | Telegram API Hash，从 https://my.telegram.org 获取 |
+| `TG_IFTTT_ADMIN_TOKEN` | 管理令牌，Web 控制台和 API 的访问密钥 |
+
+### Bot API 模式
+
+如果使用 Bot Token 而非普通用户账号：
+
+```bash
+TG_IFTTT_ADAPTER=bot_api
+TG_IFTTT_BOT_TOKEN=123456:your-bot-token
+```
+
+> Bot Token 无法模拟用户点击键盘按钮。需要 `/start` 后点击按钮的流程必须使用 `mtproto` 适配器和已登录的普通用户账号。
+
+### 可选项
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `TG_IFTTT_MASTER_KEY` | 无 | 32 字节密钥（64 位十六进制），设置后 session 加密存储 |
+| `TG_IFTTT_API_BIND_PORT` | `8000` | API 服务端口 |
+| `TG_IFTTT_UI_BIND_PORT` | `8080` | Web 控制台端口 |
+| `TG_IFTTT_TIMEZONE` | `Asia/Shanghai` | 定时调度的时区 |
+| `TG_IFTTT_RECOVERY_INTERVAL` | `15` | 恢复轮询间隔（秒） |
+| `TG_IFTTT_SCHEDULER_INTERVAL` | `20` | 调度器轮询间隔（秒） |
+| `TG_IFTTT_EVENT_POLL_INTERVAL` | `5` | 事件轮询间隔（秒） |
+| `TG_IFTTT_WEBHOOK_SECRET` | 无 | 外部 Webhook 调用的独立密钥 |
+
+### Node-RED（仅开发模式）
+
+使用 `docker-compose-dev.yaml` 时可启用 Node-RED 兼容编辑器：
+
+```bash
+TG_IFTTT_NODERED_USER=admin
+TG_IFTTT_NODERED_PASSWORD=your-password
+TG_IFTTT_NODERED_BIND_PORT=1880
+```
+
+---
+
+## 部署方式
+
+### 生产部署（预构建镜像）
+
+```bash
+cp .env.example .env
+# 编辑 .env 填写必填项
+docker compose up -d
+```
+
+使用 Docker Hub 上的多架构镜像（amd64 / arm64），无需本地构建。
+
+### 开发部署（本地构建 + Node-RED）
+
+```bash
+cp .env.example .env
+# 编辑 .env 填写必填项
+docker compose -f docker-compose-dev.yaml up -d --build
+```
+
+包含 Node-RED 兼容编辑器，访问 `http://localhost:8080/nodered/`。
+
+### 单独运行 API
 
 ```bash
 docker build -t tg-ifttt-api .
 docker run --rm -p 8000:8000 --env-file .env -v tg_ifttt_data:/data tg-ifttt-api
 ```
 
-## Development
+### 更新服务
+
+修改 `.env` 后需要重建容器使新配置生效：
+
+```bash
+docker compose up -d --force-recreate
+```
+
+---
+
+## 开发
 
 ```bash
 python3 -m pip install -e '.[dev]'
 python3 -m pytest -q
 ```
 
-The offline example demonstrates the core flow without connecting to Telegram:
+离线示例（不连接 Telegram）：
 
 ```bash
 python3 -m tg_ifttt.cli.qinglong --config examples/config.yaml
 ```
 
-The Qinglong entrypoint is a single generated Python file. It reads config.yaml or config.json beside itself and can discover workflow files under a sibling workflows directory:
+构建并推送多架构 Docker 镜像：
 
 ```bash
-python3 scripts/build_qinglong_runner.py --output tg_ifttt_qinglong.py
-python3 tg_ifttt_qinglong.py --config examples/config.yaml
-# For a Qinglong polling task, poll telegram.event workflows once and exit.
-python3 tg_ifttt_qinglong.py --config config.yaml --poll-events
+./scripts/docker-publish.sh                          # amd64 + arm64，推送全部服务
+./scripts/docker-publish.sh --platforms linux/amd64   # 单架构
+./scripts/docker-publish.sh --tag v0.2.0             # 指定版本标签
+./scripts/docker-publish.sh --dry-run                # 只构建不推送
 ```
 
-Offline mode is explicit with `adapter: fake`. For an ordinary-account Qinglong run, use `adapter: mtproto` and configure `api_id`/`api_hash` (or `TG_IFTTT_API_ID`/`TG_IFTTT_API_HASH`). `TG_IFTTT_MASTER_KEY` is optional: when it is unset, account sessions are stored as plaintext StringSessions; when it is set to a valid 32-byte key, sessions are encrypted at rest. For Bot API, use `adapter: bot_api` and `TG_IFTTT_BOT_TOKEN`. Workflow files only select the account ID. Plaintext sessions are sensitive credentials: protect the SQLite volume and do not expose it to other users.
+---
 
-To disable encryption in an existing Docker deployment, remove or comment out `TG_IFTTT_MASTER_KEY` in `.env`, then run `docker compose up -d --build --force-recreate`. Existing encrypted sessions still require their original key; if no account has been logged in successfully yet, there is nothing to migrate.
+## 安全须知
 
-Bot Tokens cannot impersonate an ordinary user to click a keyboard. Workflows that need `/start` followed by a button click must select a logged-in ordinary MTProto account; Bot API workflows can send messages, receive updates, and answer callback queries addressed to the bot.
-
-The Docker service includes authenticated workflow management, startup recovery, minute-granularity cron scheduling, fixed-time calendar schedules, event-driven `telegram.event` triggers (continuous MTProto listeners and Bot API long polling), Webhook/API entry points, and the React visual editor. In the editor, a schedule runs every N calendar days at a fixed hour/minute/second; optional random seconds are stable per workflow date and never move the second past 59. Fixed-time schedules use `Asia/Shanghai` by default; set `TG_IFTTT_TIMEZONE` to override it. Tune the background loops with `TG_IFTTT_RECOVERY_INTERVAL`, `TG_IFTTT_SCHEDULER_INTERVAL`, and `TG_IFTTT_EVENT_POLL_INTERVAL`. Never put Telegram sessions, Bot Tokens, or API secrets in workflow files or the repository.
-
-For Telegram send and button nodes, the runtime automatically waits for a newer message or an in-place panel refresh before advancing to the next non-wait node. This wait is persisted as a checkpoint, so delayed bot replies and service restarts do not repeat the preceding action. Use `telegram.wait_message` when a workflow needs an explicit sender or content filter. For button nodes that search automatically, `after_message_id: "{{ steps.send_start.message_id }}"` can be added as an extra message boundary; do not use the sent `/start` message as the button source with the `message` field.
+- **永远不要**将 `.env` 文件、Telegram session、Bot Token 或 API 密钥提交到仓库
+- 将公网端口置于 HTTPS 反向代理之后
+- `TG_IFTTT_MASTER_KEY` 设置后，已加密的 session 需要原始密钥才能解密；移除该变量只影响新 session
+- 普通 session 是敏感凭据，请保护 SQLite 数据卷，不要暴露给其他用户
+- 流程配置文件中只选择账号 ID，不包含任何凭据
