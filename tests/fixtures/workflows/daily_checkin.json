@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "workflow": {
+    "id": "daily-checkin",
+    "name": "每日签到",
+    "enabled": true,
+    "account": "telegram-account-1"
+  },
+  "triggers": [
+    {
+      "type": "cron",
+      "expression": "0 9 * * *"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "send_start",
+      "type": "telegram.send_message",
+      "config": {
+        "target": "@example_bot",
+        "text": "/start"
+      }
+    },
+    {
+      "id": "click_checkin",
+      "type": "telegram.click_button",
+      "config": {
+        "target": "@example_bot",
+        "after_message_id": "{{ steps.send_start.message_id }}",
+        "keyboard": "auto",
+        "match": {
+          "type": "regex",
+          "value": "^✅\\s*每日签到$"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "send_start",
+      "to": "click_checkin"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tg-ifttt"
+version = "0.1.0"
+description = "Self-hosted Telegram workflow automation engine"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "PyYAML>=6.0,<7.0",
+  "cryptography>=41.0,<46.0",
+  "Telethon>=1.44,<2.0",
+  "fastapi>=0.110,<1.0",
+  "uvicorn>=0.29,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0,<9.0",
+  "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.setuptools.packages.find]
+where = ["src"]

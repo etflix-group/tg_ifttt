@@ -1,0 +1,9 @@
+{
+  "name": "tg-ifttt-nodered",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Safe Node-RED authoring nodes for tg-ifttt",
+  "dependencies": {
+    "bcryptjs": "^2.4.3"
+  }
+}

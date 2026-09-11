@@ -1,0 +1,232 @@
+<script type="text/javascript">
+    (function () {
+        "use strict";
+
+        function register(type, options) {
+            RED.nodes.registerType(type, Object.assign({
+                category: "tg-ifttt",
+                color: "#b9d7c2",
+                defaults: {
+                    name: { value: "" }
+                },
+                inputs: 1,
+                outputs: 1,
+                icon: "font-awesome/fa-bolt",
+                label: function () { return this.name || type; }
+            }, options));
+        }
+
+        register("tg-workflow", {
+            paletteLabel: "流程元数据",
+            inputs: 0,
+            outputs: 0,
+            defaults: {
+                name: { value: "流程元数据" },
+                workflow_id: { value: "", required: true },
+                workflow_name: { value: "" },
+                enabled: { value: true },
+                account: { value: "" },
+                triggers_json: { value: '[{"type":"manual"}]' }
+            }
+        });
+
+        register("tg-trigger", {
+            paletteLabel: "触发器",
+            inputs: 0,
+            outputs: 1,
+            defaults: {
+                name: { value: "触发器" },
+                trigger_type: { value: "manual", required: true },
+                expression: { value: "" },
+                event_type: { value: "" },
+                target: { value: "" },
+                sender: { value: "" },
+                match_type: { value: "contains" },
+                match_value: { value: "" }
+            }
+        });
+
+        register("tg-send-message", {
+            paletteLabel: "发送 Telegram 消息",
+            defaults: {
+                name: { value: "发送消息" },
+                target: { value: "", required: true },
+                text: { value: "", required: true }
+            }
+        });
+
+        register("tg-wait-message", {
+            paletteLabel: "等待 Telegram 消息",
+            defaults: {
+                name: { value: "等待消息" },
+                target: { value: "", required: true },
+                sender: { value: "" },
+                text_match_type: { value: "contains" },
+                text_match_value: { value: "" },
+                message_id: { value: "" },
+                after_message_id: { value: "" },
+                limit: { value: "20" },
+                timeout: { value: "" }
+            }
+        });
+
+        register("tg-click-button", {
+            paletteLabel: "点击按钮",
+            defaults: {
+                name: { value: "点击按钮" },
+                target: { value: "", required: true },
+                message: { value: "" },
+                keyboard: { value: "auto" },
+                match_type: { value: "exact" },
+                match_value: { value: "", required: true },
+                match_multiple: { value: "fail" },
+                after_message_id: { value: "" },
+                limit: { value: "" }
+            }
+        });
+
+        register("tg-answer-callback", {
+            paletteLabel: "回答回调",
+            defaults: {
+                name: { value: "回答回调" },
+                callback_id: { value: "", required: true },
+                text: { value: "" }
+            }
+        });
+
+        register("tg-read-messages", {
+            paletteLabel: "读取消息",
+            defaults: {
+                name: { value: "读取消息" },
+                target: { value: "", required: true },
+                limit: { value: "20" }
+            }
+        });
+
+        register("tg-set-variable", {
+            paletteLabel: "设置变量",
+            defaults: {
+                name: { value: "设置变量" },
+                variable_name: { value: "result", required: true },
+                value: { value: "" },
+                expression: { value: "" }
+            },
+            oneditprepare: function () {
+                $("#node-input-variable_name").val(this.variable_name || "result");
+            }
+        });
+
+        register("tg-condition", {
+            paletteLabel: "条件分支",
+            outputs: 2,
+            defaults: {
+                name: { value: "条件分支" },
+                expression: { value: "", required: true },
+                conditions_json: { value: "" }
+            }
+        });
+
+        register("tg-delay", {
+            paletteLabel: "延迟",
+            defaults: {
+                name: { value: "延迟" },
+                seconds: { value: 2, required: true, validate: RED.validators.number() }
+            }
+        });
+
+        register("tg-end", {
+            paletteLabel: "结束",
+            inputs: 1,
+            outputs: 0,
+            defaults: { name: { value: "结束" } }
+        });
+    }());
+</script>
+
+<script type="text/html" data-template-name="tg-workflow">
+    <div class="form-row"><label for="node-input-workflow_id">流程 ID</label><input type="text" id="node-input-workflow_id"></div>
+    <div class="form-row"><label for="node-input-workflow_name">流程名称</label><input type="text" id="node-input-workflow_name"></div>
+    <div class="form-row"><label for="node-input-account">执行账号</label><input type="text" id="node-input-account" placeholder="可选 account_id"></div>
+    <div class="form-row"><label for="node-input-enabled">启用流程</label><input type="checkbox" id="node-input-enabled" style="width:auto;"></div>
+    <div class="form-row"><label for="node-input-triggers_json">触发器 JSON</label><textarea id="node-input-triggers_json" rows="4" style="width:100%;"></textarea></div>
+    <div class="form-tips">此节点只保存 tg-ifttt 元数据，不会在 Node-RED 中执行。</div>
+</script>
+
+<script type="text/html" data-template-name="tg-trigger">
+    <div class="form-row"><label for="node-input-trigger_type">触发类型</label><select id="node-input-trigger_type"><option value="manual">手动</option><option value="cron">Cron</option><option value="telegram.event">Telegram 事件</option><option value="webhook">Webhook</option></select></div>
+    <div class="form-row"><label for="node-input-expression">表达式</label><input type="text" id="node-input-expression" placeholder="*/5 * * * *"></div>
+    <div class="form-row"><label for="node-input-event_type">事件类型</label><input type="text" id="node-input-event_type"></div>
+    <div class="form-row"><label for="node-input-target">目标会话</label><input type="text" id="node-input-target"></div>
+    <div class="form-row"><label for="node-input-sender">发送者</label><input type="text" id="node-input-sender"></div>
+    <div class="form-row"><label for="node-input-match_type">文本匹配</label><select id="node-input-match_type"><option value="exact">完全匹配</option><option value="contains">包含</option><option value="regex">正则</option></select></div>
+    <div class="form-row"><label for="node-input-match_value">匹配值</label><input type="text" id="node-input-match_value"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-send-message">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-target">目标会话</label><input type="text" id="node-input-target" placeholder="@example_bot"></div>
+    <div class="form-row"><label for="node-input-text">消息内容</label><textarea id="node-input-text" rows="4" style="width:100%;"></textarea></div>
+</script>
+
+<script type="text/html" data-template-name="tg-wait-message">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-target">目标会话</label><input type="text" id="node-input-target"></div>
+    <div class="form-row"><label for="node-input-sender">发送者</label><input type="text" id="node-input-sender"></div>
+    <div class="form-row"><label for="node-input-text_match_type">文本匹配</label><select id="node-input-text_match_type"><option value="exact">完全匹配</option><option value="contains">包含</option><option value="regex">正则</option></select></div>
+    <div class="form-row"><label for="node-input-text_match_value">匹配值</label><input type="text" id="node-input-text_match_value"></div>
+    <div class="form-row"><label for="node-input-message_id">消息 ID</label><input type="text" id="node-input-message_id"></div>
+    <div class="form-row"><label for="node-input-after_message_id">之后的消息 ID</label><input type="text" id="node-input-after_message_id"></div>
+    <div class="form-row"><label for="node-input-limit">读取条数</label><input type="text" id="node-input-limit"></div>
+    <div class="form-row"><label for="node-input-timeout">超时秒数</label><input type="text" id="node-input-timeout"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-click-button">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-target">目标会话</label><input type="text" id="node-input-target"></div>
+    <div class="form-row"><label for="node-input-message">来源消息 ID</label><input type="text" id="node-input-message" placeholder="留空自动找最新消息"></div>
+    <div class="form-row"><label for="node-input-keyboard">键盘模式</label><select id="node-input-keyboard"><option value="auto">自动识别</option><option value="inline">Inline</option><option value="reply">Reply</option></select></div>
+    <div class="form-row"><label for="node-input-match_type">按钮匹配</label><select id="node-input-match_type"><option value="exact">完全匹配</option><option value="contains">包含</option><option value="regex">正则</option><option value="callback_data">Callback data</option><option value="position">位置</option></select></div>
+    <div class="form-row"><label for="node-input-match_value">匹配值</label><input type="text" id="node-input-match_value"></div>
+    <div class="form-row"><label for="node-input-match_multiple">多命中策略</label><select id="node-input-match_multiple"><option value="fail">失败</option><option value="first">第一项</option></select></div>
+    <div class="form-row"><label for="node-input-after_message_id">之后的消息 ID</label><input type="text" id="node-input-after_message_id"></div>
+    <div class="form-row"><label for="node-input-limit">读取条数</label><input type="text" id="node-input-limit"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-answer-callback">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-callback_id">Callback ID</label><input type="text" id="node-input-callback_id"></div>
+    <div class="form-row"><label for="node-input-text">回答文本</label><input type="text" id="node-input-text"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-read-messages">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-target">目标会话</label><input type="text" id="node-input-target"></div>
+    <div class="form-row"><label for="node-input-limit">读取条数</label><input type="text" id="node-input-limit"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-set-variable">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-variable_name">变量名</label><input type="text" id="node-input-variable_name"></div>
+    <div class="form-row"><label for="node-input-value">静态值</label><textarea id="node-input-value" rows="3" style="width:100%;"></textarea></div>
+    <div class="form-row"><label for="node-input-expression">安全表达式</label><input type="text" id="node-input-expression"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-condition">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-expression">安全表达式</label><textarea id="node-input-expression" rows="3" style="width:100%;"></textarea></div>
+    <div class="form-row"><label for="node-input-conditions_json">输出条件 JSON</label><textarea id="node-input-conditions_json" rows="3" style="width:100%;" placeholder='["variables.ok == true", "variables.ok == false"]'></textarea></div>
+</script>
+
+<script type="text/html" data-template-name="tg-delay">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-row"><label for="node-input-seconds">等待秒数</label><input type="text" id="node-input-seconds"></div>
+</script>
+
+<script type="text/html" data-template-name="tg-end">
+    <div class="form-row"><label for="node-input-name">名称</label><input type="text" id="node-input-name"></div>
+    <div class="form-tips">tg-ifttt Python 执行器会将此节点标记为成功。</div>
+</script>
+
+<script type="text/html" data-help-name="tg-send-message">
+    <p>保存为 tg-ifttt 的 Telegram 发送动作。Node-RED 仅用于编辑，不能直接运行。</p>
+</script>

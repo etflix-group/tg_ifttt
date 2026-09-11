@@ -1,0 +1,3 @@
+adapter: fake
+workflows:
+  - workflows/daily_checkin.yaml

@@ -1,0 +1,82 @@
+# Telegram IFTTT — Docker Compose
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env: set TG_IFTTT_ADMIN_TOKEN and adapter credentials
+#   docker compose up -d --build
+#
+# Services:
+#   tg-ifttt-api      — Python workflow engine + REST API (port 8000)
+#   tg-ifttt-ui       — React visual editor + nginx reverse proxy (port 8080)
+#   tg-ifttt-nodered  — Optional Node-RED compatibility editor (port 1880)
+
+services:
+  tg-ifttt-api:
+    image: "${TG_IFTTT_API_IMAGE:-}${TG_IFTTT_API_IMAGE:+:}${TG_IFTTT_IMAGE_TAG:-latest}"
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TG_IFTTT_ADMIN_TOKEN: "${TG_IFTTT_ADMIN_TOKEN:?Set TG_IFTTT_ADMIN_TOKEN in .env or the shell environment}"
+      TG_IFTTT_DATA_DIR: /data
+      TG_IFTTT_HOST: 0.0.0.0
+      TG_IFTTT_PORT: 8000
+      TZ: "${TG_IFTTT_TIMEZONE:-Asia/Shanghai}"
+    ports:
+      - "${TG_IFTTT_API_BIND_PORT:-8000}:8000"
+    volumes:
+      - tg_ifttt_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  tg-ifttt-ui:
+    image: "${TG_IFTTT_UI_IMAGE:-}${TG_IFTTT_UI_IMAGE:+:}${TG_IFTTT_IMAGE_TAG:-latest}"
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      tg-ifttt-api:
+        condition: service_healthy
+      tg-ifttt-nodered:
+        condition: service_healthy
+    ports:
+      - "${TG_IFTTT_UI_BIND_PORT:-8080}:80"
+
+  tg-ifttt-nodered:
+    image: "${TG_IFTTT_NODERED_IMAGE:-}${TG_IFTTT_NODERED_IMAGE:+:}${TG_IFTTT_IMAGE_TAG:-latest}"
+    build: ./nodered
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TG_IFTTT_NODERED_USER: "${TG_IFTTT_NODERED_USER:-admin}"
+      PORT: 1880
+    depends_on:
+      tg-ifttt-api:
+        condition: service_healthy
+    ports:
+      - "${TG_IFTTT_NODERED_BIND_PORT:-1880}:1880"
+    volumes:
+      - tg_ifttt_nodered_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:1880/nodered/', response => process.exit(response.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tg_ifttt_data:
+  tg_ifttt_nodered_data:

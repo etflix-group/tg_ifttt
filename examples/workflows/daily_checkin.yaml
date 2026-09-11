@@ -1,0 +1,25 @@
+version: 1
+workflow:
+  id: example-daily-checkin
+  name: 示例每日签到
+  enabled: true
+  account: example-account
+triggers:
+  - type: manual
+nodes:
+  - id: send_start
+    type: telegram.send_message
+    config:
+      target: "@example_bot"
+      text: "/start"
+  - id: click_checkin
+    type: telegram.click_button
+    config:
+      target: "@example_bot"
+      keyboard: auto
+      match:
+        type: regex
+        value: "^✅\\s*每日签到$"
+edges:
+  - from: send_start
+    to: click_checkin

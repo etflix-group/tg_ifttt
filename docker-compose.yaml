@@ -1,0 +1,52 @@
+# Telegram IFTTT — Production Docker Compose
+#
+# Uses pre-built multi-arch images from Docker Hub (no local build required).
+# Node-RED is not included; use docker-compose-dev.yaml for the full stack.
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env: set TG_IFTTT_ADMIN_TOKEN and adapter credentials
+#   docker compose up -d
+#
+# Services:
+#   tg-ifttt-api  — Python workflow engine + REST API (port 8000)
+#   tg-ifttt-ui   — React visual editor + nginx reverse proxy (port 8080)
+
+services:
+  tg-ifttt-api:
+    image: etflixgroup/tg-ifttt-api:${TG_IFTTT_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TG_IFTTT_ADMIN_TOKEN: "${TG_IFTTT_ADMIN_TOKEN:?Set TG_IFTTT_ADMIN_TOKEN in .env or the shell environment}"
+      TG_IFTTT_DATA_DIR: /data
+      TG_IFTTT_HOST: 0.0.0.0
+      TG_IFTTT_PORT: 8000
+      TZ: "${TG_IFTTT_TIMEZONE:-Asia/Shanghai}"
+    ports:
+      - "${TG_IFTTT_API_BIND_PORT:-8000}:8000"
+    volumes:
+      - tg_ifttt_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  tg-ifttt-ui:
+    image: etflixgroup/tg-ifttt-ui:${TG_IFTTT_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      tg-ifttt-api:
+        condition: service_healthy
+    ports:
+      - "${TG_IFTTT_UI_BIND_PORT:-8080}:80"
+
+volumes:
+  tg_ifttt_data:
