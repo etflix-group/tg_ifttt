@@ -49,6 +49,8 @@ services:
         condition: service_healthy
     ports:
       - "${TG_IFTTT_UI_BIND_PORT:-8080}:80"
+    volumes:
+      - ./frontend/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
 
   tg-ifttt-nodered:
     image: "${TG_IFTTT_NODERED_IMAGE:-}${TG_IFTTT_NODERED_IMAGE:+:}${TG_IFTTT_IMAGE_TAG:-latest}"
